@@ -1,56 +1,31 @@
 package client
 
-import akka.actor.{Actor, ActorSystem, Props}
-import com.virtuslab.akkaworkshop.Decrypter
-import com.virtuslab.akkaworkshop.PasswordsDistributor._
-import scala.util.Try
+import akka.actor.{ActorIdentity, ActorSystem, Identify}
+import akka.pattern.ask
+import akka.util.Timeout
 
-class RequesterActor extends Actor {
+import scala.concurrent.Await
+import scala.concurrent.duration._
+import scala.util.{Success, Try}
 
-  val decrypter = new Decrypter
-
-  private def decryptPassword(password: String): Try[String] = Try {
-    val preapared = decrypter.prepare(password)
-    val decoded = decrypter.decode(preapared)
-    val decrypted = decrypter.decrypt(decoded)
-    decrypted
-  }
-
-  // receive with messages that can be sent by the server
-  override def receive: Receive = {
-
-    case Registered(token) => ???
-
-    case EncryptedPassword(encryptedPassword) => ???
-
-    case PasswordCorrect(decryptedPassword) => ???
-
-    case PasswordIncorrect(decryptedPassword) => ???
-  }
-
-}
-
-object RequesterActor {
-
-  def props = Props[RequesterActor]
-
-  // messages needed to communicate with the server
-  def registerMessage(name : String) = Register(name)
-
-  def validatePasswordMessage(token: Token,
-                              encryptedPassword : String,
-                              decryptedPassword : String) =
-    ValidateDecodedPassword(token, encryptedPassword, decryptedPassword)
-
-  def sendPasswordMessage(token: Token) = SendMeEncryptedPassword(token)
-
-
-}
 
 object AkkaApplication extends App {
 
+  implicit val timeout = Timeout(10.seconds)
+
   val system = ActorSystem("RequesterSystem")
 
-  val requesterActor = system.actorOf(RequesterActor.props, name = "requester")
+  val remoteServer = system.actorSelection("akka.tcp://application@headquarters:9552/user/PasswordsDistributor")
+
+  val remoteServerRef = Try(Await.result((remoteServer ? Identify("123L")).mapTo[ActorIdentity], 10.seconds).ref)
+
+  remoteServerRef match {
+    case Success(Some(ref)) =>
+      system.actorOf(RequesterActor.props(ref), name = "requester")
+
+    case _ =>
+      system.terminate()
+  }
+
 
 }
