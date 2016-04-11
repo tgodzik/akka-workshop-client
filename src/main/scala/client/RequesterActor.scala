@@ -1,26 +1,18 @@
 package client
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
-import com.virtuslab.akkaworkshop.Decrypter
+import akka.routing.RoundRobinPool
 import com.virtuslab.akkaworkshop.PasswordsDistributor._
-
-import scala.util.Try
-
 
 class RequesterActor(remote: ActorRef) extends Actor with ActorLogging {
 
   import RequesterActor._
 
-  val decrypter = new Decrypter
   var token = ""
   val name = "Basics"
 
-  private def decryptPassword(password: String): Try[String] = Try {
-    val prepared = decrypter.prepare(password)
-    val decoded = decrypter.decode(prepared)
-    val decrypted = decrypter.decrypt(decoded)
-    decrypted
-  }
+  val workersNumber = 10
+  val workers = context.actorOf(RoundRobinPool(workersNumber).props(Worker.props))
 
   override def preStart() = {
     remote ! registerMessage(name)
@@ -32,17 +24,16 @@ class RequesterActor(remote: ActorRef) extends Actor with ActorLogging {
     case Registered(newToken) =>
       log.info(s"Registered with token $newToken")
       token = newToken
-      remote ! sendPasswordMessage(token)
+      for(_ <- 0 until workersNumber) remote ! sendPasswordMessage(token)
       context.become(working)
   }
 
   def working: Receive = {
-    case ep@EncryptedPassword(encryptedPassword) =>
-      val decrypted = decryptPassword(encryptedPassword)
-      decrypted.map {
-        decryptedPassword =>
-          remote ! validatePasswordMessage(token, encryptedPassword, decryptedPassword)
-      }.getOrElse(self ! ep)
+    case encryptedPassword : EncryptedPassword =>
+      workers ! encryptedPassword
+
+    case ValidateDecodedPassword(_, encrypted, decrypted) =>
+      remote ! ValidateDecodedPassword(token, encrypted, decrypted)
 
     case PasswordCorrect(decryptedPassword) =>
       log.info(s"Password $decryptedPassword was decrypted successfully")
@@ -54,7 +45,6 @@ class RequesterActor(remote: ActorRef) extends Actor with ActorLogging {
   }
 
 }
-
 
 object RequesterActor {
 
