@@ -32,7 +32,7 @@ class RequesterActor(remote: ActorRef) extends Actor with ActorLogging {
 
   def working: Receive = {
     case encryptedPassword : EncryptedPassword =>
-      workers ! encryptedPassword
+      workers ! List(encryptedPassword.encryptedPassword)
 
     case ValidateDecodedPassword(_, encrypted, decrypted) =>
       remote ! ValidateDecodedPassword(token, encrypted, decrypted)

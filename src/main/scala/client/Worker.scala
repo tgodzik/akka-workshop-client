@@ -1,32 +1,36 @@
 package client
 
 import akka.actor.{Actor, Props}
-import com.virtuslab.akkaworkshop.Decrypter
-import com.virtuslab.akkaworkshop.PasswordsDistributor.EncryptedPassword
+import com.virtuslab.akkaworkshop.{Decrypter, PasswordDecoded, PasswordPrepared}
+import com.virtuslab.akkaworkshop.PasswordsDistributor.ValidateDecodedPassword
 
 class Worker extends Actor {
 
-  import RequesterActor._
-
   val decrypter = new Decrypter
-
-  private def decryptPassword(password: String): String = {
-    val prepared = decrypter.prepare(password)
-    val decoded = decrypter.decode(prepared)
-    val decrypted = decrypter.decrypt(decoded)
-    decrypted
-  }
 
   override def preRestart(reason: Throwable, message: Option[Any]) {
     message foreach { self.forward }
   }
 
-  override def receive: Receive = working
+  override def receive: Actor.Receive = waitingForNewPassword
 
-  def working : Receive = {
-    case ep@EncryptedPassword(encryptedPassword) =>
-      val decrypted = decryptPassword(encryptedPassword)
-      sender ! validatePasswordMessage("", encryptedPassword, decrypted)
+  def waitingForNewPassword: Actor.Receive = {
+    case (encryptedPassword: String) :: Nil =>
+      self forward (decrypter.prepare(encryptedPassword) :: List(encryptedPassword))
+      context.become(processing)
+    case msg :: history =>
+      self forward history
+      if (history.length > 1) context.become(processing)
+  }
+
+  def processing: Actor.Receive = {
+    case (preparedPassword: PasswordPrepared) :: hs =>
+      self forward (decrypter.decode(preparedPassword) :: preparedPassword :: hs)
+    case (decodedPassword: PasswordDecoded) :: hs =>
+      self forward (decrypter.decrypt(decodedPassword) :: decodedPassword :: hs)
+    case  (decryptedPassword: String) :: decodedPassword :: preparedPassword :: (encryptedPassword: String) :: Nil =>
+      sender ! ValidateDecodedPassword("", encryptedPassword, decryptedPassword)
+      context.become(waitingForNewPassword)
   }
 }
 
