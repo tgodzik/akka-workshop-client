@@ -1,6 +1,7 @@
 package client
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.SupervisorStrategy.Restart
+import akka.actor.{Actor, ActorLogging, ActorRef, AllForOneStrategy, Props}
 import akka.routing.RoundRobinPool
 import com.virtuslab.akkaworkshop.PasswordsDistributor._
 
@@ -12,7 +13,8 @@ class RequesterActor(remote: ActorRef) extends Actor with ActorLogging {
   val name = "Basics"
 
   val workersNumber = 10
-  val workers = context.actorOf(RoundRobinPool(workersNumber).props(Worker.props))
+  val restartingStrategy = AllForOneStrategy() { case _: Exception => Restart }
+  val workers = context.actorOf(RoundRobinPool(workersNumber, supervisorStrategy = restartingStrategy).props(Worker.props))
 
   override def preStart() = {
     remote ! registerMessage(name)
